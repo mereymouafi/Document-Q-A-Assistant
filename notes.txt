@@ -1,0 +1,5 @@
+Amazon EC2 provides virtual servers for running applications.
+
+Amazon S3 stores objects such as photos, videos, and backups in buckets.
+
+Amazon RDS is a managed service for relational databases such as PostgreSQL and MySQL.

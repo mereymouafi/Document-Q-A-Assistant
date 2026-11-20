@@ -1,0 +1,4 @@
+.env
+notes_index.json
+__pycache__/
+.venv/
