@@ -26,8 +26,13 @@ if background_path.is_file():
     """
 
 st.markdown(
-    """
-    <style>
+    """<style>
+    [data-testid="stToolbar"],
+    [data-testid="stAppViewerBadge"],
+    [class*="viewerBadge_container"] {
+        display: none !important;
+    }
+
     .stApp {
         background-color: #162c3e;
         background-image: __BACKGROUND__;
@@ -199,46 +204,37 @@ if uploaded_files and "document" not in st.session_state:
     st.session_state.document = (all_chunks, all_vectors, source_names)
 
 document = st.session_state.get("document")
-ready = document is not None
 
-if ready:
+if document is not None:
     chunks, vectors, source_names = document
-    file_count = len(uploaded_files)
-    st.caption(f"{file_count} file(s) ready · {len(chunks)} passages indexed")
-
-with st.form("question_form"):
-    question = st.text_input(
-        "Ask a question about these documents",
-        placeholder="What are the main points?",
-    )
-    submitted = st.form_submit_button("Ask", disabled=not ready)
-
-if submitted and ready:
-    question = question.strip()
-
-    if question:
-        with st.spinner("Searching your documents..."):
-          st.session_state.result = ask(question, chunks, vectors, source_names)
-    else:
-        st.warning("Please enter a question.")
-
-st.subheader("Answer")
-
-if ready and "result" in st.session_state:
-    answer, passages= st.session_state.result
-    st.write(answer)
-
-    passage_label = "passage" if len(passages) == 1 else "passages"
     st.caption(
-        
-        f"{len(passages)} {passage_label} retrieved"
+        f"{len(uploaded_files)} file(s) ready · {len(chunks)} passages indexed"
     )
 
-    if passages:
-        with st.expander("Retrieved passages"):
-            for passage in passages:
-                st.text(passage)
-elif ready:
-    st.caption("Ask a question to see an answer with citations here.")
-else:
-    st.caption("Upload a document to get started.")
+    with st.form("question_form"):
+        question = st.text_input(
+            "Ask a question about these documents",
+            placeholder="What are the main points?",
+        )
+        submitted = st.form_submit_button("Ask")
+
+    if submitted:
+        question = question.strip()
+        if question:
+            with st.spinner("Searching your documents..."):
+                st.session_state.result = ask(question, chunks, vectors, source_names)
+        else:
+            st.warning("Please enter a question.")
+
+    if "result" in st.session_state:
+        answer, passages = st.session_state.result
+        st.subheader("Answer")
+        st.write(answer)
+
+        passage_label = "passage" if len(passages) == 1 else "passages"
+        st.caption(f"{len(passages)} {passage_label} retrieved")
+
+        if passages:
+            with st.expander("Retrieved passages"):
+                for passage in passages:
+                    st.text(passage)
