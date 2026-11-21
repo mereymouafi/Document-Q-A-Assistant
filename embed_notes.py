@@ -18,6 +18,16 @@ def embed(text):
         contents=text,
     )
     return result.embeddings[0].values
+def prepare_document(text):
+    """Split the uploaded text into paragraphs and embed each one."""
+    text = text.replace("\r\n", "\n")
+    chunks = [
+        paragraph.strip()
+        for paragraph in text.split("\n\n")
+        if paragraph.strip()
+    ]
+    vectors = [embed(chunk) for chunk in chunks]
+    return chunks, vectors
 
 
 def cosine_similarity(first_vector, second_vector):
@@ -64,7 +74,7 @@ else:
     print("Embeddings des notes calculés et sauvegardés.")
 
 
-def ask(question):
+def ask(question, chunks, chunk_vectors, source_name):
     """Find relevant passages and answer the question with Gemini."""
     question_vector = embed(question)
 
@@ -85,18 +95,21 @@ def ask(question):
     passages = []
     print("\nPassages retrieved:")
 
-    for index in top_indices:
-        source_id = f"notes.txt#chunk-{index + 1}"
+    for citation_number, index in enumerate(top_indices, start=1):
         passage = chunks[index]
+        passages.append(f"[{citation_number}]\n{passage}")
 
-        print(f"{source_id} (score {scores[index]:.3f})")
-        passages.append(f"[{source_id}]\n{passage}")
+        print(
+            f"[{citation_number}] {source_name}#chunk-{index + 1} "
+            f"(score {scores[index]:.3f})"
+        )
 
     context = "\n\n".join(passages)
 
     prompt = f"""
 Answer the question directly and precisely using only the passages below.
-Cite the source ID of each passage you use.
+Cite each supporting passage using its numbered label, such as [1] or [2].
+Use only the labels shown in the provided passages.
 If the passages only support part of the answer, say which part is missing.
 If they provide no answer, reply exactly:
 I couldn't find the answer in the provided passages.
@@ -123,6 +136,6 @@ if __name__ == "__main__":
         if not question:
             continue
 
-        answer, passages = ask(question)
+        answer, passages = ask(question, chunks, chunk_vectors, "notes.txt")
         print("\nAnswer:")
         print(answer)
