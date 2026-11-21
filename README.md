@@ -14,7 +14,7 @@ The Streamlit interface uses a full-page blue jellyfish background, a centered n
 | Indexing | A progress spinner while the app extracts and embeds the uploaded text |
 | Ready | File and passage counts, a question field, and the **Ask** button |
 | Answer available | The answer, numbered citations, a retrieved-passage count, and an expandable list of passages |
-![Uploading image.png…]()
+
 
 ## System design
 
