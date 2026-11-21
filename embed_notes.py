@@ -1,6 +1,7 @@
 from math import hypot
 from pathlib import Path
 
+import re
 from dotenv import load_dotenv
 from google import genai
 
@@ -19,17 +20,26 @@ def embed(text):
     )
     return result.embeddings[0].values
 def prepare_document(text):
-    """Split the uploaded text into paragraphs and embed each one."""
+    """Split text into searchable passages and embed each one."""
     text = text.replace("\r\n", "\n")
-    chunks = [
-        paragraph.strip()
-        for paragraph in text.split("\n\n")
-        if paragraph.strip()
-    ]
+    paragraphs = re.split(r"\n[ \t]*\n", text.strip())
+
+    chunk_size = 200
+    overlap = 30
+    chunks = []
+
+    for paragraph in paragraphs:
+        words = paragraph.split()
+
+        for start in range(0, len(words), chunk_size - overlap):
+            end = start + chunk_size
+            chunks.append(" ".join(words[start:end]))
+
+            if end >= len(words):
+                break
+
     vectors = [embed(chunk) for chunk in chunks]
     return chunks, vectors
-
-
 def cosine_similarity(first_vector, second_vector):
     """Compare the direction of two vectors."""
     dot_product = sum(
