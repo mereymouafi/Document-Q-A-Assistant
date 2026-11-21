@@ -6,7 +6,7 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from embed_notes import ask, prepare_document
-
+from time import perf_counter
 
 def clear_document():
     st.session_state.pop("document", None)
@@ -36,6 +36,18 @@ st.markdown(
         background-attachment: fixed;
         color: #f4eee5;
     }
+
+    @keyframes reveal-title {
+    from { clip-path: inset(0 100% 0 0); }
+    to   { clip-path: inset(0 0 0 0); }
+}
+
+@media (min-width: 600px) and (prefers-reduced-motion: no-preference) {
+    .typing-title {
+        display: inline-block;
+        animation: reveal-title 0.9s steps(19, end) both;
+    }
+}
 
     [data-testid="stHeader"] {
         background: transparent;
@@ -127,7 +139,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("Ask your documents")
+animate_title = not st.session_state.get("title_animation_done", False)
+title_class = "typing-title" if animate_title else ""
+st.session_state.title_animation_done = True
+
+st.markdown(
+    f'<h1 class="{title_class}">Ask your documents.</h1>',
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "Get answers based only on your files, with citations that take you "
+    "back to the source."
+)
 
 uploaded_files = st.file_uploader(
     "Upload up to 5 PDF or TXT files",
@@ -141,7 +164,7 @@ if len(uploaded_files) > 5:
     st.stop()
 
 
-if uploaded_files and st.button("Index documents"):
+if uploaded_files and "document" not in st.session_state:
     clear_document()
     all_chunks = []
     all_vectors = []
@@ -175,33 +198,47 @@ if uploaded_files and st.button("Index documents"):
 
     st.session_state.document = (all_chunks, all_vectors, source_names)
 
+document = st.session_state.get("document")
+ready = document is not None
 
-if "document" in st.session_state:
-    chunks, vectors, source_names = st.session_state.document
+if ready:
+    chunks, vectors, source_names = document
+    file_count = len(uploaded_files)
+    st.caption(f"{file_count} file(s) ready · {len(chunks)} passages indexed")
+
+with st.form("question_form"):
+    question = st.text_input(
+        "Ask a question about these documents",
+        placeholder="What are the main points?",
+    )
+    submitted = st.form_submit_button("Ask", disabled=not ready)
+
+if submitted and ready:
+    question = question.strip()
+
+    if question:
+        with st.spinner("Searching your documents..."):
+          st.session_state.result = ask(question, chunks, vectors, source_names)
+    else:
+        st.warning("Please enter a question.")
+
+st.subheader("Answer")
+
+if ready and "result" in st.session_state:
+    answer, passages= st.session_state.result
+    st.write(answer)
+
+    passage_label = "passage" if len(passages) == 1 else "passages"
     st.caption(
-        f"{len(uploaded_files)} files ready · {len(chunks)} passages indexed"
+        
+        f"{len(passages)} {passage_label} retrieved"
     )
 
-    with st.form("question_form"):
-        question = st.text_input("Ask a question about these documents")
-        submitted = st.form_submit_button("Ask")
-
-    if submitted:
-        question = question.strip()
-
-        if question:
-            with st.spinner("Searching your documents..."):
-                st.session_state.result = ask(
-                    question, chunks, vectors, source_names
-                )
-        else:
-            st.warning("Please enter a question.")
-
-    if "result" in st.session_state:
-        answer, passages = st.session_state.result
-        st.subheader("Answer")
-        st.write(answer)
-
+    if passages:
         with st.expander("Retrieved passages"):
             for passage in passages:
                 st.text(passage)
+elif ready:
+    st.caption("Ask a question to see an answer with citations here.")
+else:
+    st.caption("Upload a document to get started.")
