@@ -14,52 +14,71 @@ def clear_document():
 
 st.title("Document Q&A Assistant")
 
-uploaded_file = st.file_uploader(
-    "Upload a text file or PDF",
+uploaded_files = st.file_uploader(
+    "Upload up to 5 PDF or TXT files",
     type=["txt", "pdf"],
+    accept_multiple_files=True,
     on_change=clear_document,
 )
 
-if uploaded_file is not None and st.button("Index document"):
+if len(uploaded_files) > 5:
+    st.warning("Please remove files until you have 5 or fewer.")
+    st.stop()
+
+
+if uploaded_files and st.button("Index documents"):
     clear_document()
+    all_chunks = []
+    all_vectors = []
+    source_names = []
 
-    try:
-        file_bytes = uploaded_file.getvalue()
+    with st.spinner("Indexing your documents..."):
+        for uploaded_file in uploaded_files:
+            try:
+                file_bytes = uploaded_file.getvalue()
 
-        if uploaded_file.name.lower().endswith(".pdf"):
-            reader = PdfReader(BytesIO(file_bytes))
-            page_texts = [
-                (page.extract_text() or "").strip()
-                for page in reader.pages
-            ]
-            text = "\n\n".join(page for page in page_texts if page)
-        else:
-            text = file_bytes.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        st.error("Save your text file as UTF-8 and upload it again.")
-    except PdfReadError:
-        st.error("Could not read this PDF. Try a different copy.")
-    else:
-        if text.strip():
-            with st.spinner("Indexing your document..."):
-                chunks, vectors = prepare_document(text)
-            st.session_state.document = (uploaded_file.name, chunks, vectors)
-        else:
-            st.warning("No readable text found. Scanned PDFs may need OCR.")
+                if uploaded_file.name.lower().endswith(".pdf"):
+                    reader = PdfReader(BytesIO(file_bytes))
+                    text = "\n\n".join(
+                        (page.extract_text() or "").strip()
+                        for page in reader.pages
+                    )
+                else:
+                    text = file_bytes.decode("utf-8-sig")
+            except (UnicodeDecodeError, PdfReadError):
+                st.error(f"Could not read {uploaded_file.name}.")
+                st.stop()
+
+            if not text.strip():
+                st.error(f"No readable text found in {uploaded_file.name}.")
+                st.stop()
+
+            file_chunks, file_vectors = prepare_document(text)
+            all_chunks.extend(file_chunks)
+            all_vectors.extend(file_vectors)
+            source_names.extend([uploaded_file.name] * len(file_chunks))
+
+    st.session_state.document = (all_chunks, all_vectors, source_names)
+
 
 if "document" in st.session_state:
-    filename, chunks, vectors = st.session_state.document
-    st.caption(f"Ready to search {filename} · {len(chunks)} passages")
+    chunks, vectors, source_names = st.session_state.document
+    st.caption(
+        f"{len(uploaded_files)} files ready · {len(chunks)} passages indexed"
+    )
 
     with st.form("question_form"):
-        question = st.text_input("Ask a question about this document")
+        question = st.text_input("Ask a question about these documents")
         submitted = st.form_submit_button("Ask")
 
     if submitted:
         question = question.strip()
+
         if question:
-            with st.spinner("Searching your document..."):
-                st.session_state.result = ask(question, chunks, vectors, filename)
+            with st.spinner("Searching your documents..."):
+                st.session_state.result = ask(
+                    question, chunks, vectors, source_names
+                )
         else:
             st.warning("Please enter a question.")
 

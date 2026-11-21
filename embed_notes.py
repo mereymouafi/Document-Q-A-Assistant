@@ -97,12 +97,14 @@ def ask(question, chunks, chunk_vectors, source_name):
 
     for citation_number, index in enumerate(top_indices, start=1):
         passage = chunks[index]
-        passages.append(f"[{citation_number}]\n{passage}")
 
-        print(
-            f"[{citation_number}] {source_name}#chunk-{index + 1} "
-            f"(score {scores[index]:.3f})"
-        )
+        if isinstance(source_name, str):
+            filename = source_name
+        else:
+            filename = source_name[index]
+
+        passages.append(f"[{citation_number}] {filename}\n{passage}")
+        print(f"[{citation_number}] {filename} (score {scores[index]:.3f})")
 
     context = "\n\n".join(passages)
 
