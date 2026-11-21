@@ -4,6 +4,10 @@ Upload up to five PDF or TXT files and ask questions about their contents. The a
 
 **[Try the live demo](https://document-assistant-q.streamlit.app/)** — Upload a sample PDF or TXT file, ask a question, and check the cited passages.
 
+## App preview
+
+![Document Q&A Assistant upload screen](assets/interface.png)
+
 ## Interface design
 
 The Streamlit interface uses a full-page blue jellyfish background, a centered navy panel, ivory serif headings, and muted blue controls. The layout follows the order in which you use the app.
