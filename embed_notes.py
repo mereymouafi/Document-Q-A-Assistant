@@ -94,12 +94,56 @@ def ask(question, chunks, chunk_vectors, source_name):
         scores.append(score)
         print(f"Chunk {number}: {score:.3f}")
 
-    top_k = 2
-    ranked_indices = sorted(
-        range(len(scores)),
-        key=scores.__getitem__,
-        reverse=True,
-    )
+    top_k = 4
+    queries = [question]
+
+    if question.lower().startswith(("how ", "why ")):
+        expansion = client.models.generate_content(
+            model="gemini-3.1-flash-lite",
+            contents=(
+                "Write two short search queries that cover different aspects "
+                "of the mechanism needed to answer the question below. "
+                "Return only the queries, one per line. Do not answer the question.\n\n"
+                f"Question: {question}"
+            ),
+        )
+
+        for line in (expansion.text or "").splitlines()[:2]:
+            query = line.strip()
+            if query and query.casefold() not in {q.casefold() for q in queries}:
+                queries.append(query)
+
+    top_indices = []
+    scores = []
+
+    for query_number, query in enumerate(queries):
+        query_vector = embed(query)
+        query_scores = [
+            cosine_similarity(query_vector, chunk_vector)
+            for chunk_vector in chunk_vectors
+        ]
+        ranked_indices = sorted(
+            range(len(query_scores)),
+            key=query_scores.__getitem__,
+            reverse=True,
+        )
+
+        if query_number == 0:
+            scores = query_scores
+            top_indices.extend(ranked_indices[:2])
+            original_ranking = ranked_indices
+        else:
+            for index in ranked_indices:
+                if index not in top_indices:
+                    top_indices.append(index)
+                    break
+
+    # Fill any remaining slots from the original ranking.
+    for index in original_ranking:
+        if len(top_indices) >= 4:
+            break
+        if index not in top_indices:
+            top_indices.append(index)
     top_indices = ranked_indices[:top_k]
 
     passages = []
