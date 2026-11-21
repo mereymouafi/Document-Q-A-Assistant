@@ -81,9 +81,17 @@ st.markdown(
         border-radius: 12px;
     }
 
-    [data-testid="stTextInput"] input {
-        color: #f4eee5;
-    }
+    [data-testid="stTextInput"] [data-baseweb="input"],
+[data-testid="stTextInput"] input {
+    background-color: #263e51 !important;
+    color: #f4eee5 !important;
+    caret-color: #f4eee5;
+}
+
+[data-testid="stTextInput"] input::placeholder {
+    color: #b7cad9;
+    opacity: 1;
+}
 
     [data-testid="stForm"] {
         border: 0;
