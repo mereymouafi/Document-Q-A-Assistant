@@ -1,14 +1,18 @@
-from io import BytesIO
 import base64
+from io import BytesIO
 from pathlib import Path
+
 import streamlit as st
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from embed_notes import ask, prepare_document
-from time import perf_counter
+from bm25_search import build_bm25_index, rank_bm25
+from embed_notes import prepare_document
+
+from hybrid_search import rank_hybrid
 
 def clear_document():
+    """Clear the search index and result when the uploaded files change."""
     st.session_state.pop("document", None)
     st.session_state.pop("result", None)
 
@@ -16,8 +20,8 @@ def clear_document():
 st.set_page_config(page_title="Ask your documents", layout="centered")
 
 background_path = Path(__file__).parent / "assets" / "jellyfish.png"
-
 background_image = "none"
+
 if background_path.is_file():
     image_data = base64.b64encode(background_path.read_bytes()).decode("ascii")
     background_image = f"""
@@ -43,16 +47,16 @@ st.markdown(
     }
 
     @keyframes reveal-title {
-    from { clip-path: inset(0 100% 0 0); }
-    to   { clip-path: inset(0 0 0 0); }
-}
-
-@media (min-width: 600px) and (prefers-reduced-motion: no-preference) {
-    .typing-title {
-        display: inline-block;
-        animation: reveal-title 0.9s steps(19, end) both;
+        from { clip-path: inset(0 100% 0 0); }
+        to   { clip-path: inset(0 0 0 0); }
     }
-}
+
+    @media (min-width: 600px) and (prefers-reduced-motion: no-preference) {
+        .typing-title {
+            display: inline-block;
+            animation: reveal-title 0.9s steps(19, end) both;
+        }
+    }
 
     [data-testid="stHeader"] {
         background: transparent;
@@ -99,16 +103,16 @@ st.markdown(
     }
 
     [data-testid="stTextInput"] [data-baseweb="input"],
-[data-testid="stTextInput"] input {
-    background-color: #263e51 !important;
-    color: #f4eee5 !important;
-    caret-color: #f4eee5;
-}
+    [data-testid="stTextInput"] input {
+        background-color: #263e51 !important;
+        color: #f4eee5 !important;
+        caret-color: #f4eee5;
+    }
 
-[data-testid="stTextInput"] input::placeholder {
-    color: #b7cad9;
-    opacity: 1;
-}
+    [data-testid="stTextInput"] input::placeholder {
+        color: #b7cad9;
+        opacity: 1;
+    }
 
     [data-testid="stForm"] {
         border: 0;
@@ -152,10 +156,7 @@ st.markdown(
     f'<h1 class="{title_class}">Ask your documents.</h1>',
     unsafe_allow_html=True,
 )
-st.markdown(
-    "Get answers based only on your files, with citations that take you "
-    "back to the source."
-)
+st.markdown("Search your uploaded documents and see the matching passages.")
 
 uploaded_files = st.file_uploader(
     "Upload up to 5 PDF or TXT files",
@@ -169,6 +170,7 @@ if len(uploaded_files) > 5:
     st.stop()
 
 
+# 1. Process the uploads once for the current set of files.
 if uploaded_files and "document" not in st.session_state:
     clear_document()
     all_chunks = []
@@ -196,17 +198,32 @@ if uploaded_files and "document" not in st.session_state:
                 st.error(f"No readable text found in {uploaded_file.name}.")
                 st.stop()
 
+            # Keep each chunk, its embedding, and its filename aligned.
             file_chunks, file_vectors = prepare_document(text)
             all_chunks.extend(file_chunks)
             all_vectors.extend(file_vectors)
             source_names.extend([uploaded_file.name] * len(file_chunks))
 
-    st.session_state.document = (all_chunks, all_vectors, source_names)
+        if not all_chunks:
+            st.error("No passages could be created from the uploaded files.")
+            st.stop()
 
+        # Outside the file loop, build one BM25 index for all uploaded chunks.
+        bm25_index = build_bm25_index(all_chunks)
+        st.session_state.document = (
+            all_chunks,
+            all_vectors,
+            source_names,
+            bm25_index,
+        )
+
+
+# 2. Read the saved index after indexing and reuse it on later reruns.
 document = st.session_state.get("document")
 
 if document is not None:
-    chunks, vectors, source_names = document
+    chunks, vectors, source_names, bm25_index = document
+
     st.caption(
         f"{len(uploaded_files)} file(s) ready · {len(chunks)} passages indexed"
     )
@@ -218,18 +235,35 @@ if document is not None:
         )
         submitted = st.form_submit_button("Ask")
 
+    # 3. Run BM25 when the user submits a question.
     if submitted:
         question = question.strip()
+
         if question:
             with st.spinner("Searching your documents..."):
-                st.session_state.result = ask(question, chunks, vectors, source_names)
+                matching_indices = rank_hybrid(question, bm25_index, vectors, limit=4)
+
+                # rank is the display label. index is the chunk position.
+                passages = [
+                    f"[{rank}] {source_names[index]}\n{chunks[index]}"
+                    for rank, index in enumerate(matching_indices, start=1)
+                ]
+
+                message = (
+                    "Hybrid search results."
+                    if passages
+                    else "No passages retrieved"
+                )
+                st.session_state.result = (message, passages)
         else:
             st.warning("Please enter a question.")
 
+    # 4. Display the retrieval result and the matching passages.
     if "result" in st.session_state:
-        answer, passages = st.session_state.result
-        st.subheader("Answer")
-        st.write(answer)
+        message, passages = st.session_state.result
+
+        st.subheader("Search results")
+        st.write(message)
 
         passage_label = "passage" if len(passages) == 1 else "passages"
         st.caption(f"{len(passages)} {passage_label} retrieved")

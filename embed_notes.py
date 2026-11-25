@@ -83,6 +83,22 @@ else:
     index_path.write_text(json.dumps(index), encoding="utf-8")
     print("Embeddings des notes calculés et sauvegardés.")
 
+def rank_semantic(question, chunk_vectors, limit=10):
+    # Embed the question once.
+    question_vector = embed(question)
+
+    # Calculate one similarity score per chunk.
+    scores = [
+        cosine_similarity(question_vector, vector)
+        for vector in chunk_vectors
+    ]
+
+    # Return chunk positions, ordered by similarity.
+    return sorted(
+        range(len(scores)),
+        key=lambda index: scores[index],
+        reverse=True,
+    )[:limit]
 
 def ask(question, chunks, chunk_vectors, source_name):
     """Find relevant passages and answer the question with Gemini."""
