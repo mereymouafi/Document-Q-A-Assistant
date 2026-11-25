@@ -3,3 +3,4 @@ python-dotenv
 streamlit
 pypdf
 rank-bm25
+fonttools

@@ -3,16 +3,17 @@ from io import BytesIO
 from pathlib import Path
 
 import streamlit as st
+from google.genai.errors import ClientError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from bm25_search import build_bm25_index, rank_bm25
-from embed_notes import prepare_document
-
+from bm25_search import build_bm25_index
+from embed_notes import generate_answer, prepare_document
 from hybrid_search import rank_hybrid
 
+
 def clear_document():
-    """Clear the search index and result when the uploaded files change."""
+    """Clear the indexes and answer when the uploaded files change."""
     st.session_state.pop("document", None)
     st.session_state.pop("result", None)
 
@@ -156,7 +157,7 @@ st.markdown(
     f'<h1 class="{title_class}">Ask your documents.</h1>',
     unsafe_allow_html=True,
 )
-st.markdown("Search your uploaded documents and see the matching passages.")
+st.markdown("Ask questions about your files and check the passages behind each answer.")
 
 uploaded_files = st.file_uploader(
     "Upload up to 5 PDF or TXT files",
@@ -170,9 +171,8 @@ if len(uploaded_files) > 5:
     st.stop()
 
 
-# 1. Process the uploads once for the current set of files.
+# 1. Extract and index the user's files.
 if uploaded_files and "document" not in st.session_state:
-    clear_document()
     all_chunks = []
     all_vectors = []
     source_names = []
@@ -185,8 +185,7 @@ if uploaded_files and "document" not in st.session_state:
                 if uploaded_file.name.lower().endswith(".pdf"):
                     reader = PdfReader(BytesIO(file_bytes))
                     text = "\n\n".join(
-                        (page.extract_text() or "").strip()
-                        for page in reader.pages
+                        (page.extract_text() or "").strip() for page in reader.pages
                     )
                 else:
                     text = file_bytes.decode("utf-8-sig")
@@ -198,8 +197,19 @@ if uploaded_files and "document" not in st.session_state:
                 st.error(f"No readable text found in {uploaded_file.name}.")
                 st.stop()
 
-            # Keep each chunk, its embedding, and its filename aligned.
-            file_chunks, file_vectors = prepare_document(text)
+            try:
+                file_chunks, file_vectors = prepare_document(text)
+            except ClientError as error:
+                if error.code != 429:
+                    raise
+
+                st.warning(
+                    "Gemini is still rate-limiting document indexing. "
+                    "Wait a minute, then re-upload the file or try a smaller one."
+                )
+                st.stop()
+
+            # The text, vector, and filename share the same chunk position.
             all_chunks.extend(file_chunks)
             all_vectors.extend(file_vectors)
             source_names.extend([uploaded_file.name] * len(file_chunks))
@@ -208,7 +218,6 @@ if uploaded_files and "document" not in st.session_state:
             st.error("No passages could be created from the uploaded files.")
             st.stop()
 
-        # Outside the file loop, build one BM25 index for all uploaded chunks.
         bm25_index = build_bm25_index(all_chunks)
         st.session_state.document = (
             all_chunks,
@@ -218,7 +227,7 @@ if uploaded_files and "document" not in st.session_state:
         )
 
 
-# 2. Read the saved index after indexing and reuse it on later reruns.
+# 2. Reuse the document indexes on later questions.
 document = st.session_state.get("document")
 
 if document is not None:
@@ -235,35 +244,40 @@ if document is not None:
         )
         submitted = st.form_submit_button("Ask")
 
-    # 3. Run BM25 when the user submits a question.
+    # 3. Retrieve passages and generate the answer from those passages.
     if submitted:
         question = question.strip()
+        st.session_state.pop("result", None)
 
-        if question:
-            with st.spinner("Searching your documents..."):
-                matching_indices = rank_hybrid(question, bm25_index, vectors, limit=4)
-
-                # rank is the display label. index is the chunk position.
-                passages = [
-                    f"[{rank}] {source_names[index]}\n{chunks[index]}"
-                    for rank, index in enumerate(matching_indices, start=1)
-                ]
-
-                message = (
-                    "Hybrid search results."
-                    if passages
-                    else "No passages retrieved"
-                )
-                st.session_state.result = (message, passages)
-        else:
+        if not question:
             st.warning("Please enter a question.")
+        else:
+            with st.spinner("Searching your documents and writing an answer..."):
+                try:
+                    indices = rank_hybrid(question, bm25_index, vectors, limit=4)
+                    passages = [
+                        f"[{rank}] {source_names[index]}\n{chunks[index]}"
+                        for rank, index in enumerate(indices, start=1)
+                    ]
 
-    # 4. Display the retrieval result and the matching passages.
+                    if passages:
+                        answer = generate_answer(question, passages)
+                    else:
+                        answer = "I couldn't find the answer in the uploaded documents."
+
+                    st.session_state.result = (answer, passages)
+                except ClientError as error:
+                    if error.code != 429:
+                        raise
+
+                    st.warning("Gemini is rate-limiting requests. Please try again shortly.")
+
+    # 4. Display the answer and the passages used to generate it.
     if "result" in st.session_state:
-        message, passages = st.session_state.result
+        answer, passages = st.session_state.result
 
-        st.subheader("Search results")
-        st.write(message)
+        st.subheader("Answer")
+        st.write(answer)
 
         passage_label = "passage" if len(passages) == 1 else "passages"
         st.caption(f"{len(passages)} {passage_label} retrieved")

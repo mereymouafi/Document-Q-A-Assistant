@@ -3,7 +3,7 @@ from embed_notes import rank_semantic
 
 
 def fuse_rankings(keyword_ranking, semantic_ranking, k=60):
-    # Store one combined score per chunk position.
+    """Combine two ranked lists using Reciprocal Rank Fusion."""
     fused_scores = {}
 
     for ranking in (keyword_ranking, semantic_ranking):
@@ -19,6 +19,7 @@ def fuse_rankings(keyword_ranking, semantic_ranking, k=60):
 
 
 def rank_hybrid(question, bm25_index, chunk_vectors, limit=4):
+    """Return the highest-ranked chunk positions after fusion."""
     keyword_ranking = rank_bm25(question, bm25_index, limit=10)
     semantic_ranking = rank_semantic(question, chunk_vectors, limit=10)
 
